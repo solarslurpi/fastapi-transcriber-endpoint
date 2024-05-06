@@ -1,0 +1,79 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Launch FastAPI",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": [
+        "app:app", // Replace "app:app" with "your_file_name:your_fastapi_instance_name"
+        "--reload"
+      ],
+      "jinja": true,
+      "console": "integratedTerminal",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}"
+      }
+    },
+    {
+      "name": "PyTest - AutoTranscribe()",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pytest",
+      "args": [
+        "-v",
+        "-s",
+        "${workspaceFolder}/test/test_transcribe_integrated.py::${input:testName}"
+      ],
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      "name": "PyTest - Audio_background",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pytest",
+      "args": [
+        "-v",
+        "-s",
+        "${workspaceFolder}/test/test_background_transcribe_integrated.py::${input:testBackground}"
+      ],
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      "name": "PyTest - AutoTranscribe() FAILURES",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pytest",
+      "args": [
+        "-v",
+        "-s",
+        "${workspaceFolder}/test/test_transcribe_integrated_failure.py::${input:testNameFailure}"
+      ],
+      "console": "integratedTerminal",
+      "justMyCode": false
+    }
+  ],
+  "inputs": [
+    {
+      "id": "testName",
+      "type": "promptString",
+      "description": "Enter the filename:",
+      "default": "test_audio_transcription_workflow_mp3_upload_success"
+    },
+    {
+      "id": "testNameFailure",
+      "type": "promptString",
+      "description": "Enter the filename:",
+      "default": "test_copy_gfile_to_local_mp3_failure"
+    },
+    {
+      "id": "testBackground",
+      "type": "promptString",
+      "description": "Enter test name:",
+      "default": "test_workflow_status_in_gdrive_files"
+    }
+  ]
+}
