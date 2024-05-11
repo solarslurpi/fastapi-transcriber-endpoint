@@ -16,5 +16,5 @@
   "restructuredtext.linter.run": "onSave",
   "editor.defaultFormatter": "ms-python.pylint",
   "files.trimTrailingWhitespace": true,
-  "python.testing.pytestArgs": ["test"]
+  "python.testing.pytestArgs": ["tests"]
 }

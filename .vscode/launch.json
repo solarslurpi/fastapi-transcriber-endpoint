@@ -17,14 +17,14 @@
       }
     },
     {
-      "name": "PyTest - AutoTranscribe()",
+      "name": "PyTest - Transcribe()",
       "type": "debugpy",
       "request": "launch",
       "module": "pytest",
       "args": [
         "-v",
         "-s",
-        "${workspaceFolder}/test/test_transcribe_integrated.py::${input:testName}"
+        "${workspaceFolder}/tests/test_transcribe.py::${input:testName}"
       ],
       "console": "integratedTerminal",
       "justMyCode": false
@@ -61,7 +61,7 @@
       "id": "testName",
       "type": "promptString",
       "description": "Enter the filename:",
-      "default": "test_audio_transcription_workflow_mp3_upload_success"
+      "default": "test_transcribe_with_actual_processing"
     },
     {
       "id": "testNameFailure",

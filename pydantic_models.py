@@ -5,7 +5,7 @@ import torch
 from fastapi import UploadFile, Form, File
 from pydantic import BaseModel, Field
 AUDIO_QUALITY_MAP = {
-    "default":  "openai/whisper-large-v3",
+    "default":  "openai/whisper-tiny.en",
     "tiny": "openai/whisper-tiny.en",
     "small": "openai/whisper-small.en",
     "medium": "openai/whisper-medium.en",
@@ -38,8 +38,8 @@ class GlobalState(BaseModel):
     mp3_filepath: str = Field(default=None, description="Location of the MP3 file")
     tags: list = Field(default_factory=list, description="Descriptive tags from the content")
     description: str = Field(default=None, description="Description provided by the content creator")
-    audio_quality: str = Field(default="large")
-    compute_type: str = Field(default="float16")
+    audio_quality: str = Field(default="default")
+    compute_type: str = Field(default="default")
     transcript_text: str = Field(default=None, description="Transcript of the MP3 file")
 
 # Instance of the global state

@@ -9,7 +9,7 @@ from starlette.responses import StreamingResponse
 
 
 from logger_code import LoggerBase
-from pydantic_models import AudioProcessRequest, as_form, global_state, mp3_file_ready_event, transcript_ready_event
+from pydantic_models import AudioProcessRequest, as_form, global_state, mp3_file_ready_event, transcript_ready_event, AUDIO_QUALITY_MAP, COMPUTE_TYPE_MAP
 from utils import isYouTubeUrl,download_youtube_to_mp3, transcribe_mp3
 
 app = FastAPI()
@@ -31,8 +31,12 @@ audio_input_global = None
 async def process_audio(background_tasks: BackgroundTasks, audio_input: AudioProcessRequest = Depends(as_form)):
     logger.debug("-> Starting process_audio")
     if isYouTubeUrl(audio_input):
+        global_state.youtube_url = audio_input.youtube_url
         # Enqueue the download task, and then the transcription task
         background_tasks.add_task(download_youtube_to_mp3, yt_url=audio_input.youtube_url, output_dir='.', logger=logger)
+
+
+        # The mp3_filepath is set in the download_youtube... task.  Thus, using global_state.
         background_tasks.add_task(transcribe_mp3, logger=logger)
     else:  # Directly handle uploaded file
         global_state.mp3_filepath = audio_input.file.filename
@@ -71,21 +75,6 @@ async def event_stream():
     filename_stem = Path(mp3_path).stem if mp3_path else "Transcript"
     yield f"data: {json.dumps({'transcript_text': global_state.transcript_text, 'filename': filename_stem})}\n\n"
 
-
-# async def make_transcript()-> str:
-#     logger.debug("-> in make_transcript.")
-#     time.sleep(2) # mimic the time to make the transcript.
-#     try:
-#         with open('transcript.txt', 'r', encoding='utf-8') as file:
-#             file_contents = file.read()
-#         logger.debug("File content read successfully.")
-#         return file_contents
-#     except FileNotFoundError:
-#         logger.debug("The file does not exist.")
-#         return 'This is the transcript text to be put in the obsidian folder'
-#     except IOError:
-#         logger.debug("An error occurred while reading the file.")
-#         return 'This is the transcript text to be put in the obsidian folder'
 
 
 if __name__ == "__main__":
