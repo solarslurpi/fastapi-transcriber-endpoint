@@ -1,6 +1,8 @@
 ###########################################################################################
 # Author: HappyDay Johnson
-# Version: 0.01
+# Version: 0.02
+# - fixed `AttributeError: 'NoneType' object has no attribute 'f_back'` by breaking if f.f_back
+#   is None 2024-05-11
 # Date: 2024-03-20
 # Summary: This module enhances logging with a custom 'FLOW' level for detailed application flow
 # events, positioned between 'DEBUG' and 'INFO'. It utilizes colorlog for colorized logging,
@@ -78,8 +80,13 @@ class CustomFormatter(colorlog.ColoredFormatter):
         # Go back 2 frames to find the caller
         # Adjust the range as necessary based on your logging setup
         for _ in range(10):
+            if f is None:
+                break
             f = f.f_back
-        i = inspect.getframeinfo(f)
+        if f is not None:
+            i = inspect.getframeinfo(f)
+        else:
+             i = inspect.getframeinfo(inspect.currentframe())
 
         # Add custom attributes for filename, line number, and function name to the record
         record.custom_pathname = i.filename

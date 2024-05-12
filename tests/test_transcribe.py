@@ -12,7 +12,7 @@ def logger():
 @pytest.fixture
 def setup_global_state():
     g_state = GlobalState
-    update_state(youtube_url = "https://www.youtube.com/watch?v=example",
+    global_state.update(youtube_url = "https://www.youtube.com/watch?v=example",
                  mp3_filepath = "/path/to/file.mp3",
                  tags = ["tag1", "tag2"],
                  description = "Sample description",

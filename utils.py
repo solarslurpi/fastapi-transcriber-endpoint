@@ -1,13 +1,14 @@
-import asyncio
-import re
-from pathlib import Path
 
+import os
+import re
+
+import yaml
 import yt_dlp
 from fastapi import HTTPException
-from transformers import pipeline
-import torch
 
-from pydantic_models import update_state, global_state, mp3_file_ready_event, transcript_ready_event, AudioProcessRequest, AUDIO_QUALITY_MAP, COMPUTE_TYPE_MAP
+from logger_code import LoggerBase
+from pydantic_models import  global_state, mp3_file_ready_event, transcript_ready_event, AudioProcessRequest, AUDIO_QUALITY_MAP, COMPUTE_TYPE_MAP
+from transcribe_code import transcribe, process_chapters
 
 def isYouTubeUrl(request: AudioProcessRequest) -> bool:
     if request.youtube_url and request.file:
@@ -19,93 +20,68 @@ def isYouTubeUrl(request: AudioProcessRequest) -> bool:
     else:
         raise HTTPException(status_code=400, detail="No YouTube URL or file provided.")
 
-async def download_youtube_to_mp3(yt_url: str, output_dir:str, logger):
+async def download_youtube_to_mp3(yt_url: str, output_dir:str, logger:LoggerBase):
     logger.debug(f"Starting download process for: {yt_url} into directory: {output_dir}")
     # The YouTube title is used as the filename. Sometimes, there are characters - like asian 'double colon' that won't work when opening and closing files (on Windows at least).  So we look at the title first then download.
-    filename, global_state.tags, global_state.description = get_yt_filename(yt_url=yt_url, logger=logger)
+    filename, global_state.tags, global_state.description, global_state.duration, global_state.chapters = get_yt_filename(yt_url=yt_url, logger=logger)
     # Clean out any characters that don't work great in filenames.
     sanitized_filename = sanitize_filename(filename=filename,logger=logger)
     filepath = output_dir + '/' + sanitized_filename
     download_yt_to_mp3(filepath, yt_url, logger)
-    update_state(mp3_filepath = filepath + '.mp3')
+    global_state.update(mp3_filepath = filepath + '.mp3')
     mp3_file_ready_event.set()
 
-async def transcribe_mp3(logger):
+async def transcribe_mp3(mp3_filepath: str, logger: LoggerBase):
 
     await mp3_file_ready_event.wait()
     # Why not just pass these in? Because of the way this background task uses an event to start the code actually going.
     mp3_filepath = global_state.mp3_filepath
-    whisper_model = AUDIO_QUALITY_MAP.get(global_state.audio_quality, "distil-whisper/distil-large-v3")
-    torch_compute_type = COMPUTE_TYPE_MAP.get(global_state.compute_type)
+    whisper_model = AUDIO_QUALITY_MAP.get(global_state.audio_quality, "distil-whisper/distil-large-v3") # Get hf model name from simple name.
+    torch_compute_type = COMPUTE_TYPE_MAP.get(global_state.compute_type) # get torch.dtype from simple name.
     logger.debug(f"Transcribing file path: {mp3_filepath}")
-    transcription_text = await transcribe(mp3_filepath, whisper_model, torch_compute_type, logger)
-    metadata_text = build_metadata()
+    chapters = global_state.chapters
+
+    if chapters is not None and len(chapters) > 0:
+        transcription_text = process_chapters(chapters, logger, mp3_filepath, whisper_model, torch_compute_type)
+    else:
+        transcription_text = await transcribe(mp3_filepath, logger, whisper_model, torch_compute_type, )
+    metadata_text = build_frontmatter()
 
     # Combine metadata with transcription text
     total_transcript = metadata_text + transcription_text
-    update_state(transcript_text = total_transcript)
+    global_state.update(transcript_text = total_transcript)
     transcript_ready_event.set()
 
 
-async def transcribe(mp3_filename: str, hf_model_name: str, compute_type_pytorch: torch.dtype, logger) -> str:
+def build_frontmatter():
+    youtube_url = f'{global_state.youtube_url}' if global_state.youtube_url else ''
+    filename = os.path.basename(global_state.mp3_filepath) if global_state.mp3_filepath else ''
+    # Ensure each tag is prefixed with '#' and concatenated correctly
+    tags = ' '.join(f'#{tag.replace(" ", "-")}' for tag in global_state.tags) if global_state.tags else ''
+    # YAML didn't like <CR LF>..these were replaced with a space.
+    description = global_state.description.replace('\r\n', ' ').replace('\n', ' ') if global_state.description else ''
+    duration = global_state.duration
+    data = {
+        "youTube URL": f'{youtube_url}',
+        "filename": f'{filename}',
+        "tags": f'{tags}',
+        "description": f'{description}',
+        "duration": f'{format_time(duration)}',
+        "audio quality": f'{AUDIO_QUALITY_MAP[global_state.audio_quality]}',
+        "compute type": f'{str(COMPUTE_TYPE_MAP[global_state.compute_type])}'
+    }
 
-    logger.debug(f"Starting transcription with model: {hf_model_name} and compute type: {compute_type_pytorch}")
-    # Get the transcript
-    transcription_text = await _transcribe_pipeline(mp3_filename, hf_model_name, compute_type_pytorch, logger)
-    return transcription_text
+    # Serialize data to a YAML string
+    yaml_string = yaml.dump(data)
+    yaml_start_stop = "---\n"
+    frontmatter = yaml_start_stop + yaml_string + yaml_start_stop
+    return frontmatter
 
-async def _transcribe_pipeline(audio_filename: str, model_name: str, compute_float_type: torch.dtype, logger) -> str:
-    logger.debug(f"Transcribe using HF's Transformer pipeline (_transcribe_pipeline)...LOADING MODEL {model_name} using compute type {compute_float_type}")
-    def load_and_run_pipeline():
-        pipe = pipeline(
-            "automatic-speech-recognition",
-            model=model_name,
-            device=0 if torch.cuda.is_available() else -1,
-            torch_dtype=compute_float_type
-        )
-        return pipe(audio_filename, chunk_length_s=30, batch_size=8, return_timestamps=False)
-    loop = asyncio.get_running_loop()
-    result = await loop.run_in_executor(None, load_and_run_pipeline)
-    return result['text']
-
-def build_metadata():
-     # Prepare the metadata string
-    # Start YAML front matter
-    metadata = '---\n'
-
-    # Add YouTube URL
-    if global_state.youtube_url:
-        metadata += f"YouTube URL: {global_state.youtube_url}\n"
-    else:
-        metadata += "YouTube URL: \n"
-
-    # Add filename
-    if global_state.mp3_filepath:
-        filename = Path(global_state.mp3_filepath).stem
-        metadata += f"Filename: {filename}\n"
-    else:
-        metadata += "Filename: \n"
-
-    # Add tags
-    if global_state.tags:
-        formatted_tags = ' '.join(f'#{tag}' for tag in global_state.tags)
-        metadata += f"Tags: {formatted_tags}\n"
-    else:
-        metadata += "Tags: \n"
-
-    # Add description
-    if global_state.description:
-        metadata += f"Description: {global_state.description}\n"
-    else:
-        metadata += "Description: \n"
-
-
-    metadata += f"Audio Quality: {AUDIO_QUALITY_MAP[global_state.audio_quality]}\n"
-    metadata += f"Compute Type: {str(COMPUTE_TYPE_MAP[global_state.compute_type])}\n"
-
-    # End YAML front matter
-    metadata += '---\n\n'
-    return metadata
+def format_time(seconds):
+    hours = seconds // 3600  # Calculate the number of hours
+    minutes = (seconds % 3600) // 60  # Calculate the remaining minutes
+    seconds = seconds % 60  # Calculate the remaining seconds
+    return f"{hours}h {minutes}m {seconds}s"  # Format the string
 
 def sanitize_filename(filename: str, logger) -> str:
     # Remove the file extension
@@ -138,11 +114,13 @@ def get_yt_filename(yt_url: str, logger) -> str:
         info_dict = ydl.extract_info(yt_url, download=False)
         tags = info_dict['tags']
         description = info_dict['description']
+        duration = info_dict['duration']
+        chapters = info_dict['chapters']
 
         # Get the filename
         filename = ydl.prepare_filename(info_dict)
         logger.debug(f"Filename that would be used: {filename}", )
-        return filename, tags, description
+        return filename, tags, description, duration, chapters
 
 def download_yt_to_mp3(output_file:str,yt_url:str, logger) -> None:
 
@@ -165,3 +143,20 @@ def download_yt_to_mp3(output_file:str,yt_url:str, logger) -> None:
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         # Extract video information
         info_dict = ydl.extract_info(yt_url, download=True)
+
+def clean_youtube_description(description_text):
+    # Replace newline characters with a space to prevent breaking YAML format
+    cleaned_text = description_text.replace('\r\n', ' ').replace('\n', ' ')
+
+    # Handle special characters for YAML
+    # Escape double quotes in the text
+    cleaned_text = cleaned_text.replace('"', '\\"')
+
+    # Replace '@' with '"@"' within quotes if it is part of a username or handle
+    # This helps preserve the original meaning without YAML parsing errors
+    cleaned_text = cleaned_text.replace('@', '"@"')
+    # Strip all characters to the left of the first ASCII letter or number
+    cleaned_text = re.sub(r'^[^a-zA-Z0-9]+', '', cleaned_text)
+
+
+    return cleaned_text

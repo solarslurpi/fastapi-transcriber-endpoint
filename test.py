@@ -1,76 +1,47 @@
-import re
+import torch
 
-import yt_dlp
+from pydub import AudioSegment
+from transformers import pipeline
 
-def download_file(filename,video_id) -> None:
-    ydl_opts = {
-    'outtmpl' : f'{filename}',
-    'format': 'bestaudio/best',
-    'postprocessors': [{
-        'key': 'FFmpegExtractAudio',
-        'preferredcodec': 'mp3',
-        'preferredquality': '192',
-    }],
-    }
-            # Create a YoutubeDL object with the options
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        # Construct the URL
-        url = f'https://www.youtube.com/watch?v={video_id}'
+# Define a function to slice audio
+def slice_audio(audio_path, start_ms, end_ms):
+    audio = AudioSegment.from_file(audio_path)
+    return audio[start_ms:end_ms]
 
-        # Extract video information
-        info_dict = ydl.extract_info(url, download=True)
+# Define a function to transcribe audio
+def transcribe_audio(audio_segment, model_name="openai/whisper-tiny.en"):
+    # Load model
+    transcriber = pipeline("automatic-speech-recognition",
+                           model=model_name,
+                           device=0 if torch.cuda.is_available() else -1,torch_dtype=torch.float16)
+    # Export the audio segment to a format compatible with the Whisper model
+    audio_segment.export("temp.wav", format="wav")
+    # # Transcribe
+    result = transcriber("temp.wav")
+    return result['text']
 
-        # Get the filename
-        filename = ydl.prepare_filename(info_dict)
+# Main function to process chapters and write to a Markdown file
+def process_chapters(chapters, audio_path, output_file):
+    with open(output_file, "w") as md_file:
+        for chapter in chapters:
+            # Convert start and end times from seconds to milliseconds
+            start_ms = int(chapter['start_time'] * 1000)
+            end_ms = int(chapter['end_time'] * 1000)
+            # Slice the audio
+            audio_segment = slice_audio(audio_path, start_ms, end_ms)
+            # Transcribe the audio segment
+            transcription = transcribe_audio(audio_segment)
+            # Write to Markdown file
+            md_file.write(f"## {chapter['title']}\n\n{transcription}\n\n")
 
-
-def sanitize_filename(filename: str) -> str:
-    # Remove the file extension
-    name_part = filename.rsplit('.', 1)[0]
-   # Print ASCII/Unicode values of the characters before sanitization
-    print("Before sanitization:")
-    for char in name_part:
-        print(f"'{char}': {ord(char)}")
-    # Replace full-width colons and standard colons with a hyphen or other safe character
-    name_part = name_part.replace('：', '_').replace(':', '_')
-    # Replace unwanted characters with nothing or specific symbols
-    # This regex replaces any non-alphanumeric, non-space, and non-dot characters with nothing
-    cleaned_name = re.sub(r"[^a-zA-Z0-9 \.-]", "", name_part)
-    # Replace spaces with hyphens
-    safe_filename = cleaned_name.replace(" ", "_")
-
-    # Print ASCII/Unicode values of the characters after sanitization
-    print("After sanitization:")
-    for char in safe_filename:
-        print(f"'{char}': {ord(char)}")
-
-    return safe_filename
-
-def get_filename(video_id):
-    # Configure yt-dlp options
-    ydl_opts = {
-        'quiet': True,  # Suppress verbose output
-        'simulate': True,  # Do not download the video
-        'getfilename': True,  # Just print the filename
-    }
-
-    # Create a YoutubeDL object with the options
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        # Construct the URL
-        url = f'https://www.youtube.com/watch?v={video_id}'
-
-        # Extract video information
-        info_dict = ydl.extract_info(url, download=False)
-
-        # Get the filename
-        filename = ydl.prepare_filename(info_dict)
-        print("Filename that would be used:", filename)
-        return filename
-
-# Usage example
-filename = get_filename('w9Ql1sXFqTQ')
-sanitized_filename = sanitize_filename(filename)
-download_file(sanitized_filename, 'w9Ql1sXFqTQ')
-
-filepath = sanitized_filename + '.mp3'
-print(filepath) # Read the contents of the files
+# Example usage
+chapters = [
+    {'start_time': 0.0, 'title': 'Intro', 'end_time': 15.0},
+    {'start_time': 15.0, 'title': 'Features', 'end_time': 66.0},
+    {'start_time': 66.0, 'title': 'Soil EC', 'end_time': 148.0},
+    {'start_time': 148.0, 'title': 'Pulse App', 'end_time': 301.0},
+    {'start_time': 301.0, 'title': 'Conclusion', 'end_time': 318.0}
+]
+audio_path = "Bluelab_Pulse_Meter_Review.mp3"
+output_file = "output.md"
+process_chapters(chapters, audio_path, output_file)

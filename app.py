@@ -29,34 +29,18 @@ audio_input_global = None
 
 @app.post("/api/v1/process_audio")
 async def process_audio(background_tasks: BackgroundTasks, audio_input: AudioProcessRequest = Depends(as_form)):
+    global_state.reset()
     logger.debug("-> Starting process_audio")
     if isYouTubeUrl(audio_input):
-        global_state.youtube_url = audio_input.youtube_url
+        global_state.update(youtube_url=audio_input.youtube_url)
         # Enqueue the download task, and then the transcription task
         background_tasks.add_task(download_youtube_to_mp3, yt_url=audio_input.youtube_url, output_dir='.', logger=logger)
-
-
         # The mp3_filepath is set in the download_youtube... task.  Thus, using global_state.
-        background_tasks.add_task(transcribe_mp3, logger=logger)
+        background_tasks.add_task(transcribe_mp3, mp3_filepath=global_state.mp3_filepath, logger=logger)
     else:  # Directly handle uploaded file
-        global_state.mp3_filepath = audio_input.file.filename
+        global_state.update(youtube_url=None,mp3_filepath = audio_input.file.filename)
         mp3_file_ready_event.set()
         background_tasks.add_task(transcribe_mp3, logger=logger)
-
-    return {"message": "Transcription started"}
-
-@app.post("/api/v1/process_audio")
-async def process_audio(background_tasks: BackgroundTasks, audio_input: AudioProcessRequest = Depends(as_form) ):
-    logger.debug("-> Starting process_audio")
-    # Pydantic class, so either one or the other.
-    if isYouTubeUrl(audio_input):
-        background_tasks.add_task(download_youtube_to_mp3,
-                                    yt_url=audio_input.youtube_url,
-                                    output_dir='.',
-                                    logger=logger)
-    else: # Of type UploadFile.
-        global_state.mp3_filepath = audio_input.file.filename
-        mp3_file_ready_event.set()
 
     return f"data: {json.dumps({'transcription':'START'})}"
 
