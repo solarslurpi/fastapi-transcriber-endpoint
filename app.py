@@ -9,7 +9,7 @@ from starlette.responses import StreamingResponse
 
 
 from logger_code import LoggerBase
-from pydantic_models import AudioProcessRequest, as_form, global_state, mp3_file_ready_event, transcript_ready_event, AUDIO_QUALITY_MAP, COMPUTE_TYPE_MAP
+from pydantic_models import AudioProcessRequest, as_form, global_state, mp3_file_ready_event, transcript_ready_event
 from utils import isYouTubeUrl,download_youtube_to_mp3, transcribe_mp3
 
 app = FastAPI()
@@ -30,6 +30,7 @@ audio_input_global = None
 @app.post("/api/v1/process_audio")
 async def process_audio(background_tasks: BackgroundTasks, audio_input: AudioProcessRequest = Depends(as_form)):
     global_state.reset()
+    global_state.update(audio_quality=audio_input.audio_quality)
     logger.debug("-> Starting process_audio")
     if isYouTubeUrl(audio_input):
         global_state.update(youtube_url=audio_input.youtube_url)
@@ -38,11 +39,13 @@ async def process_audio(background_tasks: BackgroundTasks, audio_input: AudioPro
         # The mp3_filepath is set in the download_youtube... task.  Thus, using global_state.
         background_tasks.add_task(transcribe_mp3, mp3_filepath=global_state.mp3_filepath, logger=logger)
     else:  # Directly handle uploaded file
-        global_state.update(youtube_url=None,mp3_filepath = audio_input.file.filename)
+        global_state.update(mp3_filepath = audio_input.file.filename)
         mp3_file_ready_event.set()
         background_tasks.add_task(transcribe_mp3, logger=logger)
 
     return f"data: {json.dumps({'transcription':'START'})}"
+
+
 
 @app.get("/api/v1/sse")
 async def sse_events():

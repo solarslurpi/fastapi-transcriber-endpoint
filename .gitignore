@@ -2,9 +2,11 @@
 # Edit at https://www.toptal.com/developers/gitignore?templates=python
 
 # MJ files
+output.md
 *.wav
 *.mp3
 *.txt
+test.py
 ### Python ###
 # Byte-compiled / optimized / DLL files
 __pycache__/

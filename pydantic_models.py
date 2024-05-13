@@ -23,15 +23,16 @@ COMPUTE_TYPE_MAP = {
 class AudioProcessRequest(BaseModel):
     youtube_url: Optional[str] = None
     file: Optional[UploadFile] = None
-
+    audio_quality: str = Field(default="default", description="Audio quality setting for processing.")
 # This dependency function - i.e.: depends(as_form) - Tell FastAPI that
 # the data is being passed in as a form. Look for one or both or neither
 # of these fields.
 def as_form(
     youtube_url: str = Form(None),  # Use Form to specify form data
-    file: UploadFile = File(None)  # Use File to specify file upload
+    file: UploadFile = File(None),  # Use File to specify file upload
+    audio_quality: str = Form(default="default", description="Audio quality setting for processing.  Comes in as good/better/best.")
 ) -> AudioProcessRequest:
-    return AudioProcessRequest(youtube_url=youtube_url, file=file)
+    return AudioProcessRequest(youtube_url=youtube_url, file=file, audio_quality= audio_quality)
 
 class GlobalState(BaseModel):
     youtube_url: str = Field(default=None, description="URL of the downloaded YouTube video.")

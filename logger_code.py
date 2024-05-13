@@ -98,7 +98,7 @@ class CustomFormatter(colorlog.ColoredFormatter):
 
 class LoggerBase:
     @staticmethod
-    def setup_logger(name=None,level=logging.DEBUG):
+    def setup_logger(name=None,level=logging.INFO):
         """
         Configures and returns a logger with a custom, colorized output format. Integrates the custom
         FLOW log level and enhances log messages with detailed source information (file, line, function).
