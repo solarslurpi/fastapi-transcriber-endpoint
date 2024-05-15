@@ -20,62 +20,42 @@ def isYouTubeUrl(request: AudioProcessRequest) -> bool:
     else:
         raise HTTPException(status_code=400, detail="No YouTube URL or file provided.")
 
-async def download_youtube_to_mp3(yt_url: str, output_dir:str, logger:LoggerBase):
+async def download_youtube_to_mp3(yt_url: str, output_dir:str='.', logger:LoggerBase=None):
     logger.debug(f"Starting download process for: {yt_url} into directory: {output_dir}")
     # The YouTube title is used as the filename. Sometimes, there are characters - like asian 'double colon' that won't work when opening and closing files (on Windows at least).  So we look at the title first then download.
-    filename, global_state.tags, global_state.description, global_state.duration, global_state.chapters = get_yt_filename(yt_url=yt_url, logger=logger)
+    metadata_dict = get_yt_metadata(yt_url=yt_url)
+    global_state.update(chapters=metadata_dict['chapters'])
+
+
     # Clean out any characters that don't work great in filenames.
-    sanitized_filename = sanitize_filename(filename=filename,logger=logger)
+    sanitized_filename = sanitize_filename(filename=metadata_dict['title'],logger=logger)
     filepath = output_dir + '/' + sanitized_filename
     download_yt_to_mp3(filepath, yt_url, logger)
     global_state.update(mp3_filepath = filepath + '.mp3')
+    yaml_metadata = build_yaml_metadata(filepath, metadata_dict)
+    global_state.update(yaml_metadata=yaml_metadata)
     mp3_file_ready_event.set()
 
-async def transcribe_mp3(mp3_filepath: str, logger: LoggerBase):
+def build_yaml_metadata(mp3_filepath:str, yt_metadata:dict) -> str:
 
-    await mp3_file_ready_event.wait()
-    # Why not just pass these in? Because of the way this background task uses an event to start the code actually going.
-    mp3_filepath = global_state.mp3_filepath
-    whisper_model = AUDIO_QUALITY_MAP.get(global_state.audio_quality, "distil-whisper/distil-large-v3") # Get hf model name from simple name.
-    torch_compute_type = COMPUTE_TYPE_MAP.get(global_state.compute_type) # get torch.dtype from simple name.
-    logger.debug(f"Transcribing file path: {mp3_filepath}")
-    chapters = global_state.chapters
-
-    if chapters is not None and len(chapters) > 0:
-        transcription_text = process_chapters(chapters, logger, mp3_filepath, whisper_model, torch_compute_type)
-    else:
-        transcription_text = await transcribe(mp3_filepath, logger, whisper_model, torch_compute_type, )
-    metadata_text = build_frontmatter()
-
-    # Combine metadata with transcription text
-    total_transcript = metadata_text + transcription_text
-    global_state.update(transcript_text = total_transcript)
-    transcript_ready_event.set()
-
-
-def build_frontmatter():
-    youtube_url = f'{global_state.youtube_url}' if global_state.youtube_url else ''
-    filename = os.path.basename(global_state.mp3_filepath) if global_state.mp3_filepath else ''
-    # Ensure each tag is prefixed with '#' and concatenated correctly
-    tags = ' '.join(f'#{tag.replace(" ", "-")}' for tag in global_state.tags) if global_state.tags else ''
-    # YAML didn't like <CR LF>..these were replaced with a space.
-    description = global_state.description.replace('\r\n', ' ').replace('\n', ' ') if global_state.description else ''
-    duration = global_state.duration
+    filename = os.path.basename(mp3_filepath) if global_state.mp3_filepath else ''
+    tags = ' '.join(f'#{tag.replace(" ", "-")}' for tag in yt_metadata['tags']) if yt_metadata['tags'] else ''
     data = {
-        "youTube URL": f'{youtube_url}',
+        "youTube URL": f"{yt_metadata['webpage_url']}",
         "filename": f'{filename}',
-        "tags": f'{tags}',
-        "description": f'{description}',
-        "duration": f'{format_time(duration)}',
+        "tags": tags,
+        "description": f"{yt_metadata['description']}",
+        "duration": f"{format_time(yt_metadata['duration'])}",
         "audio quality": f'{AUDIO_QUALITY_MAP[global_state.audio_quality]}',
-        "compute type": f'{str(COMPUTE_TYPE_MAP[global_state.compute_type])}'
+        "compute type": f'{str(COMPUTE_TYPE_MAP[global_state.compute_type])}',
+        "channel name": f"{yt_metadata['channel']}",
+        "upload date": f"{yt_metadata['upload_date']}",
+        "uploader id": f"{yt_metadata['uploader_id']}",
     }
 
-    # Serialize data to a YAML string
-    yaml_string = yaml.dump(data)
-    yaml_start_stop = "---\n"
-    frontmatter = yaml_start_stop + yaml_string + yaml_start_stop
-    return frontmatter
+
+    yaml_metadata = yaml.dump(data)
+    return yaml_metadata
 
 def format_time(seconds):
     hours = seconds // 3600  # Calculate the number of hours
@@ -97,30 +77,20 @@ def sanitize_filename(filename: str, logger) -> str:
 
     return safe_filename
 
-def get_yt_filename(yt_url: str, logger) -> str:
-    # Configure yt-dlp options
+def get_yt_metadata(yt_url:str):
+    # Might not be used in workflow. But evolving how to incorporate metadata in transcript.  There is a wealth of semantic knowledge.
+        # Configure yt-dlp options
     ydl_opts = {
         'outtmpl': '%(title)s',
-        # 'quiet': True,  # Suppress verbose output
+        'quiet': True,  # Suppress verbose output
         'simulate': True,  # Do not download the video
         'getfilename': True,  # Just print the filename
-        'logger': logger,
     }
-
-    # Create a YoutubeDL object with the options
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
 
         # Extract video information
         info_dict = ydl.extract_info(yt_url, download=False)
-        tags = info_dict['tags']
-        description = info_dict['description']
-        duration = info_dict['duration']
-        chapters = info_dict['chapters']
-
-        # Get the filename
-        filename = ydl.prepare_filename(info_dict)
-        logger.debug(f"Filename that would be used: {filename}", )
-        return filename, tags, description, duration, chapters
+    return info_dict
 
 def download_yt_to_mp3(output_file:str,yt_url:str, logger) -> None:
 
@@ -141,8 +111,8 @@ def download_yt_to_mp3(output_file:str,yt_url:str, logger) -> None:
 
     # Create a YoutubeDL object with the options
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        # Extract video information
-        info_dict = ydl.extract_info(yt_url, download=True)
+        # Just download. We already have the info.
+        ydl.extract_info(yt_url, download=True)
 
 def clean_youtube_description(description_text):
     # Replace newline characters with a space to prevent breaking YAML format

@@ -1,4 +1,4 @@
-
+import logging
 import json
 from pathlib import Path
 
@@ -10,7 +10,8 @@ from starlette.responses import StreamingResponse
 
 from logger_code import LoggerBase
 from pydantic_models import AudioProcessRequest, as_form, global_state, mp3_file_ready_event, transcript_ready_event
-from utils import isYouTubeUrl,download_youtube_to_mp3, transcribe_mp3
+from transcribe_code import transcribe_mp3
+from utils import isYouTubeUrl,download_youtube_to_mp3
 
 app = FastAPI()
 
@@ -23,7 +24,7 @@ app.add_middleware(
     allow_headers=["*"],  # Allow all headers
 )
 
-logger = LoggerBase.setup_logger("fastapi-transcriber-endpoint")
+logger = LoggerBase.setup_logger("fastapi-transcriber-endpoint",level = logging.DEBUG)
 
 audio_input_global = None
 

@@ -1,54 +1,83 @@
 import pytest
+import time
 
 from logger_code import LoggerBase
-from pydantic_models import GlobalState, update_state, AUDIO_QUALITY_MAP, COMPUTE_TYPE_MAP
-from utils import transcribe, build_metadata
+from pydantic_models import global_state, mp3_file_ready_event
+from transcribe_code import transcribe_mp3, transcribe
+from utils import get_yt_metadata
+
+@pytest.fixture
+def mp3_file():
+    mp3_file = 'Bluelab_Pulse_Meter_Review.mp3'
+    return mp3_file
 
 @pytest.fixture
 def logger():
-    logger = LoggerBase.setup_logger('test_batch_transcribing')
+    logger = LoggerBase.setup_logger('test_transcribing')
     return logger
 
 @pytest.fixture
-def setup_global_state():
-    g_state = GlobalState
-    global_state.update(youtube_url = "https://www.youtube.com/watch?v=example",
-                 mp3_filepath = "/path/to/file.mp3",
-                 tags = ["tag1", "tag2"],
-                 description = "Sample description",
-                 audio_quality = "default",
-                 compute_type = "default"
-                 )
-    return g_state
+def setup_global_state(mp3_file):
+    yt_url = "https://www.youtube.com/watch?v=KbZDsrs5roI"  # Example YouTube URL
+    yt_metadata = get_yt_metadata(yt_url)
+    global_state.mp3_filepath = mp3_file
+    global_state.audio_quality = "tiny"
+    global_state.compute_type = "default"
+    global_state.chapters = yt_metadata.get('chapters', [])
+    global_state.youtube_url = yt_url
+    global_state.frontmatter_text = '''---
+audio quality: openai/whisper-large-v3
+channel name: KIS Organics
+compute type: torch.float16
+description: 'I am really enjoying using the Bluelab Pulse Meter in my grow room!
+  I go over how it works as well as some potential uses for living soil growers.
 
-def test_build_metadata(setup_global_state, logger):
-    expected_metadata = (
-        '---\n'
-        'YouTube URL: https://www.youtube.com/watch?v=example\n'
-        'Filename: file\n'
-        'Tags: #tag1 #tag2\n'
-        'Description: Sample description\n'
-        f'Audio Quality: {str(AUDIO_QUALITY_MAP["default"])}\n'
-        f'Compute Type: {str(COMPUTE_TYPE_MAP["default"])}\n'
-        '---\n\n'
-    )
-    logger.debug(f"Expected metadata: {expected_metadata}")
-    # Assign the mock global_state to where it will be accessed in the function
-    global global_state
-    global_state = setup_global_state
-    result = build_metadata()  # Call the function to generate metadata
-    logger.debug(f"Result: {result}")
-    assert result == expected_metadata
+
+  We currently have it available on our website for the best price online if anyone
+  wants to try it. https://www.kisorganics.com/products/bluelab-pulse-multimedia-ec-mc-meter?_pos=1&_sid=cfeeacdab&_ss=r
+
+
+  Shop: www.KISorganics.com
+
+  Instagram: @KISorganics
+
+  Twitter: @KISorganics
+
+  Facebook: www.Facebook.com/KISorganics'
+duration: 0h 5m 18s
+filename: Bluelab_Pulse_Meter_Review
+tags: ''
+upload date: '20240426'
+uploader id: '@kisorganics'
+youTube URL: https://www.youtube.com/watch?v=KbZDsrs5roI
+---'''
+
 
 @pytest.mark.asyncio
 async def test_transcribe_with_actual_processing(logger):
+    # The transcribe() function is at the heart of the transcription process.  It actually does the transcription.
 
     # Define a real MP3 file path and expected transcript
     test_audio_file = "./Bluelab_Pulse_Meter_Review.mp3"
-    expected_transcription = "expected transcription output"
 
     # Run the actual transcription function
-    transcription_result = await transcribe(test_audio_file, 'default', 'default', logger)
+    transcription_result = await transcribe(test_audio_file, logger)
     logger.debug(f"--------------------------\nFirst 100 chars of the transcript:\n{transcription_result[:100]}\n-------------------------------")
     # Assert the transcription is as expected
     assert len(transcription_result) > 50 # Assume a transcription has greater than 50 characters
+
+@pytest.mark.asyncio
+async def test_transcribe_mp3_duration(logger, setup_global_state, mp3_file):
+    mp3_file_ready_event.set() # transcribe_mp3 waits on the mp3 file being ready.  This signifies it is.
+    await transcribe_mp3(mp3_file, logger)
+
+    print(f"Transcription Time: {global_state.transcription_time} seconds.")
+
+
+    # Check if transcript text is updated
+    assert global_state.transcript_text is not None
+    assert len(global_state.transcript_text) > 0
+
+    # Check if chapters were processed correctly
+    assert global_state.chapters is not None
+    assert len(global_state.chapters) > 0

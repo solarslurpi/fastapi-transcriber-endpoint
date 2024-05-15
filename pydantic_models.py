@@ -37,22 +37,23 @@ def as_form(
 class GlobalState(BaseModel):
     youtube_url: str = Field(default=None, description="URL of the downloaded YouTube video.")
     mp3_filepath: str = Field(default=None, description="Location of the MP3 file.")
-    tags: list = Field(default_factory=list, description="Descriptive tags from the content.")
-    description: str = Field(default=None, description="Description provided by the content creator.")
-    duration: int = Field(default=None,description="The length of the transcript in number of seconds." )
+    audio_quality: str = Field(default="default", description="Used to map to an OpenAI Whisper model during audio to text (asr).")
+    compute_type: str = Field(default="default", description="Used by the OpenAI Whisper model during audio to text (asr).")
+    yaml_metadata: str = Field(default="default", description="A YouTube video's metadata to be used as Obsidian frontmatter (YAML).")
+    transcript_text: str = Field(default=None, description="Transcript of the MP3 file.")
     chapters: list = Field(default_factory=list, description="Start and end time of different chapters/topics in the transcript.")
-    audio_quality: str = Field(default="default")
-    compute_type: str = Field(default="default")
-    transcript_text: str = Field(default=None, description="Transcript of the MP3 file")
+    transcription_time: int = Field(default=0,description="Number of seconds it took to transcribe the audio file.")
 
     def reset(self):
         self.youtube_url = None
         self.mp3_filepath = None
-        self.tags = []
-        self.description = None
         self.audio_quality = "default"
         self.compute_type = "default"
+        self.yaml_metadata = None
         self.transcript_text = None
+        self.chapters = []
+        self.transcription_time = 0
+
 
     def update(self,**kwargs):
         for key, value in kwargs.items():
