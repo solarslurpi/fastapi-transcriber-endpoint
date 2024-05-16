@@ -1,4 +1,5 @@
 import asyncio
+import json
 import time
 
 from pydub import AudioSegment
@@ -8,56 +9,48 @@ from transformers import pipeline
 
 
 from logger_code import LoggerBase
-from pydantic_models import mp3_file_ready_event, transcript_ready_event, global_state, AUDIO_QUALITY_MAP, COMPUTE_TYPE_MAP
+from pydantic_models import  global_state, AUDIO_QUALITY_MAP, COMPUTE_TYPE_MAP
 
 async def transcribe_mp3(mp3_filepath: str, logger: LoggerBase):
-
-    await mp3_file_ready_event.wait()
-    # Why not just pass these in? Because of the way this background task uses an event to start the code actually going.
+    yield {'status': 'Transcribing audio...'}
     mp3_filepath = global_state.mp3_filepath
-    whisper_model = AUDIO_QUALITY_MAP.get(global_state.audio_quality, "distil-whisper/distil-large-v3") # Get hf model name from simple name.
-    torch_compute_type = COMPUTE_TYPE_MAP.get(global_state.compute_type) # get torch.dtype from simple name.
+    whisper_model = AUDIO_QUALITY_MAP.get(global_state.audio_quality, "distil-whisper/distil-large-v3")
+    torch_compute_type = COMPUTE_TYPE_MAP.get(global_state.compute_type)
     logger.debug(f"Transcribing file path: {mp3_filepath}")
     chapters = global_state.chapters
     transcription_time = 0
+
     if chapters is not None:
+        yield {'status': f'Transcribing {len(chapters)} chapter(s).'}
         logger.debug(f"Number of chapters: {len(chapters)}")
-    # We have one last thing to add to the transcript. How long it took.  We'll add this to the frontmatter.
+
+    transcription_text = ''
     if chapters is not None and len(chapters) > 0:
         start_time = time.time()
-        transcription_text = process_chapters(chapters, logger, mp3_filepath, whisper_model, torch_compute_type)
+        async for event in transcribe_chapters(chapters, logger, mp3_filepath, whisper_model, torch_compute_type):
+            yield event
+            if 'transcript_part' in event:
+                transcription_text += event['transcript_part']
         end_time = time.time()
         transcription_time = end_time - start_time
     else:
         start_time = time.time()
-        transcription_text = await transcribe(mp3_filepath, logger, whisper_model, torch_compute_type, )
+        transcription_text = await transcribe(mp3_filepath, logger, whisper_model, torch_compute_type)
         end_time = time.time()
         transcription_time = end_time - start_time
 
-    # Combine the frontmatter list back into a single string
     data = yaml.safe_load(global_state.yaml_metadata)
     data['transcription time'] = round(transcription_time, 1)
-    # convert the yaml to a string representation.
     data_str = yaml.dump(data)
     startstop = "---\n"
     obsidian_yaml = startstop + data_str + startstop
-    # Combine metadata with transcription text
-
     total_transcript = obsidian_yaml + transcription_text
-    global_state.update(transcript_text = total_transcript)
-    transcript_ready_event.set()
+    global_state.update(transcript_text=total_transcript)
 
-def insert_before_last_line(text, text_line_to_insert):
-    last_delimiter_index = -1
-    lines = text.split('\n')
-    # find the end of yaml.
-    for i, line in enumerate(lines):
-        if line.strip() == '---':
-            last_delimiter_index = i
+    yield {'status': 'Transcription complete.', 'transcript': global_state.transcript_text}
 
-    lines.insert(last_delimiter_index - 1, text_line_to_insert)
-    modified_text = '\n'.join(lines)
-    return modified_text
+
+
 
 # Define a function to slice audio
 def slice_audio(mp3_filepath, start_ms, end_ms):
@@ -76,10 +69,11 @@ def transcribe_chapter(audio_segment: AudioSegment, hf_model_name: str="distil-w
     result = transcriber("temp.wav", chunk_length_s=30, batch_size=8)
     return result['text']
 
-def process_chapters(chapters:list,logger:LoggerBase, mp3_filepath:str , hf_model_name: str="distil-whisper/distil-large-v3", compute_type_pytorch: torch.dtype=torch.float16):
+async def transcribe_chapters(chapters: list, logger: LoggerBase, mp3_filepath: str, hf_model_name: str = "distil-whisper/distil-large-v3", compute_type_pytorch: torch.dtype = torch.float16):
     chapters_text = ''
     for chapter in chapters:
         logger.debug(f'processing chapter {chapter}')
+
         # Convert start and end times from seconds to milliseconds
         start_ms = int(chapter['start_time'] * 1000)
         end_ms = int(chapter['end_time'] * 1000)
@@ -93,8 +87,12 @@ def process_chapters(chapters:list,logger:LoggerBase, mp3_filepath:str , hf_mode
         chapters_text += f"{start_time_str}\n"
         chapters_text += f"{transcription}\n"
 
+        # Yield progress event for each chapter
+        yield {'status': f'Transcribing chapter: {chapter["title"]}', 'transcript_part': transcription}
 
-    return chapters_text
+    # Yield the final transcription text
+    yield {'status': 'Transcription of chapters complete.', 'transcript': chapters_text}
+
 
 
 

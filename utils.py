@@ -1,4 +1,4 @@
-
+import json
 import os
 import re
 
@@ -7,8 +7,8 @@ import yt_dlp
 from fastapi import HTTPException
 
 from logger_code import LoggerBase
-from pydantic_models import  global_state, mp3_file_ready_event, transcript_ready_event, AudioProcessRequest, AUDIO_QUALITY_MAP, COMPUTE_TYPE_MAP
-from transcribe_code import transcribe, process_chapters
+from pydantic_models import  global_state, AudioProcessRequest, AUDIO_QUALITY_MAP, COMPUTE_TYPE_MAP
+
 
 def isYouTubeUrl(request: AudioProcessRequest) -> bool:
     if request.youtube_url and request.file:
@@ -20,21 +20,24 @@ def isYouTubeUrl(request: AudioProcessRequest) -> bool:
     else:
         raise HTTPException(status_code=400, detail="No YouTube URL or file provided.")
 
-async def download_youtube_to_mp3(yt_url: str, output_dir:str='.', logger:LoggerBase=None):
+async def download_youtube_to_mp3(yt_url: str, output_dir: str, logger: LoggerBase):
+    yield {"status": "Downloading YouTube video..."}
     logger.debug(f"Starting download process for: {yt_url} into directory: {output_dir}")
-    # The YouTube title is used as the filename. Sometimes, there are characters - like asian 'double colon' that won't work when opening and closing files (on Windows at least).  So we look at the title first then download.
+
     metadata_dict = get_yt_metadata(yt_url=yt_url)
     global_state.update(chapters=metadata_dict['chapters'])
 
-
-    # Clean out any characters that don't work great in filenames.
-    sanitized_filename = sanitize_filename(filename=metadata_dict['title'],logger=logger)
+    sanitized_filename = sanitize_filename(filename=metadata_dict['title'], logger=logger)
     filepath = output_dir + '/' + sanitized_filename
     download_yt_to_mp3(filepath, yt_url, logger)
-    global_state.update(mp3_filepath = filepath + '.mp3')
+
+    yield {"status": "Download complete."}
+    global_state.update(mp3_filepath=filepath + '.mp3')
+
     yaml_metadata = build_yaml_metadata(filepath, metadata_dict)
     global_state.update(yaml_metadata=yaml_metadata)
-    mp3_file_ready_event.set()
+
+
 
 def build_yaml_metadata(mp3_filepath:str, yt_metadata:dict) -> str:
 
