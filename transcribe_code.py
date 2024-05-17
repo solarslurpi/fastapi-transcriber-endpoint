@@ -19,12 +19,15 @@ async def transcribe_mp3(mp3_filepath: str, logger: LoggerBase):
     transcription_time = 0
 
     if chapters is not None:
+        # Let the user know that the transcription will be transcribing by chapters.
         yield {'status': f'Transcribing {len(chapters)} chapter(s).'}
+        yield {'num_chapters': len(chapters)}
         logger.debug(f"Number of chapters: {len(chapters)}")
 
     transcription_text = ''
     if chapters is not None and len(chapters) > 0:
         start_time = time.time()
+        # Transcribed chapters are sent to Obsidian as they become available.
         async for event in transcribe_chapters(chapters, logger, mp3_filepath, whisper_model, torch_compute_type):
             yield event
             if 'transcript_part' in event:
@@ -33,6 +36,7 @@ async def transcribe_mp3(mp3_filepath: str, logger: LoggerBase):
         transcription_time = end_time - start_time
     else:
         start_time = time.time()
+        # The entire audio file most be transcribed before sending to Obsidian.
         transcription_text = await transcribe(mp3_filepath, logger, whisper_model, torch_compute_type)
         end_time = time.time()
         transcription_time = end_time - start_time
@@ -41,10 +45,11 @@ async def transcribe_mp3(mp3_filepath: str, logger: LoggerBase):
     data['transcription time'] = round(transcription_time, 1)
     data_str = yaml.dump(data)
     startstop = "---\n"
-    obsidian_yaml = startstop + data_str + startstop
-    total_transcript = obsidian_yaml + transcription_text
+    frontmatter = startstop + data_str + startstop
+    total_transcript = frontmatter + transcription_text
     global_state.update(transcript_text=total_transcript)
-        # Yield the final transcription text
+    # Se
+    # Let Obsidian know we are done.
     yield {'done': 'Transcription complete.'}
 
 # Define a function to slice audio
@@ -85,11 +90,6 @@ async def transcribe_chapters(chapters: list, logger: LoggerBase, mp3_filepath: 
 
         # Yield progress event for each chapter
         yield {'chapter': transcription_chapter}
-
-
-
-
-
 
 async def transcribe(mp3_filename: str, logger:LoggerBase, hf_model_name: str="distil-whisper/distil-large-v3", compute_type_pytorch: torch.dtype=torch.float16) -> str:
     logger.debug(f"Starting transcription with model: {hf_model_name} and compute type: {compute_type_pytorch}")

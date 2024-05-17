@@ -38,7 +38,10 @@ async def download_youtube_to_mp3(yt_url: str, output_dir: str, logger: LoggerBa
     global_state.update(mp3_filepath=filepath + '.mp3')
 
     yaml_metadata = build_yaml_metadata(filepath, metadata_dict)
-    yield {"frontmatter": yaml_metadata}
+    # Obsidian frontmatter has the start and stop indicators.
+    frontmatter = '---\n' + yaml_metadata + '---\n'
+    # Send to Obsidian
+    yield {"frontmatter": frontmatter}
     global_state.update(yaml_metadata=yaml_metadata)
 
 
