@@ -1,5 +1,5 @@
 import asyncio
-import json
+import os
 import time
 
 from pydub import AudioSegment
@@ -12,8 +12,6 @@ from logger_code import LoggerBase
 from pydantic_models import  global_state, AUDIO_QUALITY_MAP, COMPUTE_TYPE_MAP
 
 async def transcribe_mp3(mp3_filepath: str, logger: LoggerBase):
-    yield {'status': 'Transcribing audio...'}
-    mp3_filepath = global_state.mp3_filepath
     whisper_model = AUDIO_QUALITY_MAP.get(global_state.audio_quality, "distil-whisper/distil-large-v3")
     torch_compute_type = COMPUTE_TYPE_MAP.get(global_state.compute_type)
     logger.debug(f"Transcribing file path: {mp3_filepath}")
@@ -46,11 +44,8 @@ async def transcribe_mp3(mp3_filepath: str, logger: LoggerBase):
     obsidian_yaml = startstop + data_str + startstop
     total_transcript = obsidian_yaml + transcription_text
     global_state.update(transcript_text=total_transcript)
-
-    yield {'status': 'Transcription complete.', 'transcript': global_state.transcript_text}
-
-
-
+        # Yield the final transcription text
+    yield {'done': 'Transcription complete.'}
 
 # Define a function to slice audio
 def slice_audio(mp3_filepath, start_ms, end_ms):
@@ -83,15 +78,15 @@ async def transcribe_chapters(chapters: list, logger: LoggerBase, mp3_filepath: 
         transcription = transcribe_chapter(audio_segment, hf_model_name=hf_model_name, compute_type_pytorch=compute_type_pytorch)
         # Write to Markdown file
         start_time_str = time.strftime('%H:%M:%S', time.gmtime(chapter['start_time']))
-        chapters_text += f"## {chapter['title']}\n"
-        chapters_text += f"{start_time_str}\n"
-        chapters_text += f"{transcription}\n"
+        transcription_chapter= f"## {chapter['title']}\n"
+        transcription_chapter += f"{start_time_str}\n"
+        transcription_chapter += f"{transcription}\n"
+        chapters_text += transcription_chapter
 
         # Yield progress event for each chapter
-        yield {'status': f'Transcribing chapter: {chapter["title"]}', 'transcript_part': transcription}
+        yield {'chapter': transcription_chapter}
 
-    # Yield the final transcription text
-    yield {'status': 'Transcription of chapters complete.', 'transcript': chapters_text}
+
 
 
 

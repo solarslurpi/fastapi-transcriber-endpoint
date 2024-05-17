@@ -25,9 +25,12 @@ async def download_youtube_to_mp3(yt_url: str, output_dir: str, logger: LoggerBa
     logger.debug(f"Starting download process for: {yt_url} into directory: {output_dir}")
 
     metadata_dict = get_yt_metadata(yt_url=yt_url)
+
     global_state.update(chapters=metadata_dict['chapters'])
 
     sanitized_filename = sanitize_filename(filename=metadata_dict['title'], logger=logger)
+    # Let obsidian know the filename
+    yield {"filename": sanitized_filename}
     filepath = output_dir + '/' + sanitized_filename
     download_yt_to_mp3(filepath, yt_url, logger)
 
@@ -35,6 +38,7 @@ async def download_youtube_to_mp3(yt_url: str, output_dir: str, logger: LoggerBa
     global_state.update(mp3_filepath=filepath + '.mp3')
 
     yaml_metadata = build_yaml_metadata(filepath, metadata_dict)
+    yield {"frontmatter": yaml_metadata}
     global_state.update(yaml_metadata=yaml_metadata)
 
 
