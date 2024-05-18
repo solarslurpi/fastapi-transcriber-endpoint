@@ -6,6 +6,7 @@ import yaml
 import yt_dlp
 from fastapi import HTTPException
 
+
 from logger_code import LoggerBase
 from pydantic_models import  global_state, AudioProcessRequest, AUDIO_QUALITY_MAP, COMPUTE_TYPE_MAP
 
@@ -23,8 +24,10 @@ def isYouTubeUrl(request: AudioProcessRequest) -> bool:
 async def download_youtube_to_mp3(yt_url: str, output_dir: str, logger: LoggerBase):
     yield {"status": "Downloading YouTube video..."}
     logger.debug(f"Starting download process for: {yt_url} into directory: {output_dir}")
-
-    metadata_dict = get_yt_metadata(yt_url=yt_url)
+    try:
+        metadata_dict = get_yt_metadata(yt_url=yt_url, logger=logger)
+    except Exception as e:
+        raise Exception(e)
 
     global_state.update(chapters=metadata_dict['chapters'])
 
@@ -38,10 +41,7 @@ async def download_youtube_to_mp3(yt_url: str, output_dir: str, logger: LoggerBa
     global_state.update(mp3_filepath=filepath + '.mp3')
 
     yaml_metadata = build_yaml_metadata(filepath, metadata_dict)
-    # Obsidian frontmatter has the start and stop indicators.
-    frontmatter = '---\n' + yaml_metadata + '---\n'
-    # Send to Obsidian
-    yield {"frontmatter": frontmatter}
+
     global_state.update(yaml_metadata=yaml_metadata)
 
 
@@ -87,7 +87,7 @@ def sanitize_filename(filename: str, logger) -> str:
 
     return safe_filename
 
-def get_yt_metadata(yt_url:str):
+def get_yt_metadata(yt_url:str, logger):
     # Might not be used in workflow. But evolving how to incorporate metadata in transcript.  There is a wealth of semantic knowledge.
         # Configure yt-dlp options
     ydl_opts = {
@@ -97,9 +97,14 @@ def get_yt_metadata(yt_url:str):
         'getfilename': True,  # Just print the filename
     }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-
-        # Extract video information
-        info_dict = ydl.extract_info(yt_url, download=False)
+        try:
+            # Extract video information
+            info_dict = ydl.extract_info(yt_url, download=False)
+        except Exception as e:
+            # Regular expression to remove ANSI escape sequences
+            cleaned_message = re.sub(r'\x1b\[([0-9;]*[mGKF])', '', e.msg)
+            logger.error(f"Error extracting info from YouTube URL: {yt_url}. Error: {cleaned_message}")
+            raise Exception(cleaned_message)
     return info_dict
 
 def download_yt_to_mp3(output_file:str,yt_url:str, logger) -> None:

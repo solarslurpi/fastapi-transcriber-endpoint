@@ -62,7 +62,3 @@ class GlobalState(BaseModel):
 
 # Instance of the global state
 global_state = GlobalState()
-
-# Events to manage the state transitions
-mp3_file_ready_event = asyncio.Event()
-transcript_ready_event = asyncio.Event()

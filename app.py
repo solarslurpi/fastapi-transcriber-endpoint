@@ -2,6 +2,7 @@ import asyncio
 import logging
 import json
 import os
+import shutil
 
 
 from fastapi import FastAPI, Depends
@@ -38,9 +39,18 @@ async def process_audio( audio_input: AudioProcessRequest = Depends(as_form)):
     if isYouTubeUrl(audio_input):
         global_state.update(youtube_url=audio_input.youtube_url)
     else:  # Directly handle uploaded file
-        global_state.update(mp3_filepath=audio_input.file.filename)
+        prep_file_for_transcription(audio_input.file)
+
 
     return {"status": "Transcription started"}
+
+def prep_file_for_transcription(obsidian_file) -> None:
+    temp_dir = "temp"
+    os.makedirs(temp_dir, exist_ok=True)
+    file_location = os.path.join(temp_dir, obsidian_file.filename)
+    with open(file_location, "wb") as buffer:
+        shutil.copyfileobj(obsidian_file.file, buffer)
+    global_state.update(mp3_filepath=file_location)
 
 @app.get("/api/v1/stream")
 async def stream():
@@ -57,8 +67,11 @@ async def event_stream():
     if global_state.youtube_url:
         # wait for downloading youtube to complete at which point there will be
         # an mp3 filename.
-        async for event in download_youtube_to_mp3(global_state.youtube_url, '.', logger):
-            yield f"data: {json.dumps(event)}\n\n"
+        try:
+            async for event in download_youtube_to_mp3(global_state.youtube_url, '.', logger):
+                yield f"data: {json.dumps(event)}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'error': str(e.args[0])})}\n\n"
     # once we hgave the mp3 filename, we can move on to transcription.
     while not global_state.mp3_filepath:
         await asyncio.sleep(0.1)
@@ -67,7 +80,7 @@ async def event_stream():
     async for event in transcribe_mp3(global_state.mp3_filepath, logger):
         yield f"data: {json.dumps(event)}\n\n"
 
-    yield f"data: {json.dumps({'status': 'Transcription completed.', 'transcript': global_state.transcript_text})}\n\n"
+    yield f"data: {json.dumps({'done': 'Transcription completed.'})}\n\n"
 
 
 if __name__ == "__main__":
