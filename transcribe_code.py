@@ -8,6 +8,7 @@ from pydub import AudioSegment
 import torch
 import yaml
 from transformers import pipeline
+from utils import format_time
 
 
 from logger_code import LoggerBase
@@ -18,6 +19,8 @@ async def transcribe_mp3(mp3_filepath: str, logger: LoggerBase):
     whisper_model = AUDIO_QUALITY_MAP.get(global_state.audio_quality, "distil-whisper/distil-large-v3")
     torch_compute_type = COMPUTE_TYPE_MAP.get(global_state.compute_type)
     logger.debug(f"Transcribing file path: {mp3_filepath}")
+    # Send the filename w/o extension to the client. This becomes the name of the obsidian note.
+    yield {'filename': os.path.splitext(os.path.basename(mp3_filepath))[0]}
     # If there are no chapters, it means the audio either didn't originate from YouTube or the YouTube metadata did not break the video into chapters.
     if not global_state.chapters:
         chapter = {}
@@ -48,7 +51,7 @@ async def transcribe_mp3(mp3_filepath: str, logger: LoggerBase):
     if not global_state.yaml_metadata: # In the case of Uploading an mp3 file.
         filename = os.path.basename(mp3_filepath) if global_state.mp3_filepath else ''
         audio = MP3(mp3_filepath)
-        duration = audio.info.length
+        duration = round(audio.info.length)
         mp3_metadata = {
             "webpage_url": '',
             "filename": f'{filename}',
@@ -66,6 +69,7 @@ async def transcribe_mp3(mp3_filepath: str, logger: LoggerBase):
     data_str = yaml.dump(data)
     startstop = "---\n"
     frontmatter = startstop + data_str + startstop
+    # Send fabricated frontmatter to Obsidian.
     yield {'frontmatter': frontmatter}
     global_state.update(frontmatter=frontmatter)
 
@@ -102,6 +106,7 @@ async def transcribe_chapters(chapters: list, logger: LoggerBase, mp3_filepath: 
         logger.debug(f'processing chapter {chapter}')
         # The end_time = 0 if the chapter did not come from YouTube metadata.
         if int(chapter['end_time']) > 0.0:
+
             # Convert start and end times from seconds to milliseconds
             start_ms = int(chapter['start_time'] * 1000)
             end_ms = int(chapter['end_time'] * 1000)

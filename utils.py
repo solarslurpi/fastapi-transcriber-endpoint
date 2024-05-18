@@ -32,8 +32,8 @@ async def download_youtube_to_mp3(yt_url: str, output_dir: str, logger: LoggerBa
     global_state.update(chapters=metadata_dict['chapters'])
 
     sanitized_filename = sanitize_filename(filename=metadata_dict['title'], logger=logger)
-    # Let obsidian know the filename
-    yield {"filename": sanitized_filename}
+    # Let obsidian know the filename - see transcribe_mp3.
+    # yield {"filename": sanitized_filename}
     filepath = output_dir + '/' + sanitized_filename
     download_yt_to_mp3(filepath, yt_url, logger)
 
