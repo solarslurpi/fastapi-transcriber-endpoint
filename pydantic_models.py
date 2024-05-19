@@ -1,4 +1,3 @@
-import asyncio
 from typing import Optional
 
 import torch
@@ -35,22 +34,22 @@ def as_form(
     return AudioProcessRequest(youtube_url=youtube_url, file=file, audio_quality= audio_quality)
 
 class GlobalState(BaseModel):
+    isYouTube_url: bool = Field(default=False, description="True if the original source of the mp3 file was YouTube, False if it was a local file.")
     youtube_url: str = Field(default=None, description="URL of the downloaded YouTube video.")
     mp3_filepath: str = Field(default=None, description="Location of the MP3 file.")
     audio_quality: str = Field(default="default", description="Used to map to an OpenAI Whisper model during audio to text (asr).")
     compute_type: str = Field(default="default", description="Used by the OpenAI Whisper model during audio to text (asr).")
     yaml_metadata: str = Field(default="default", description="A YouTube video's metadata to be used as Obsidian frontmatter (YAML).")
-    transcript_text: str = Field(default=None, description="Transcript of the MP3 file.")
     chapters: list = Field(default_factory=list, description="Start and end time of different chapters/topics in the transcript.")
     transcription_time: int = Field(default=0,description="Number of seconds it took to transcribe the audio file.")
 
     def reset(self):
+        self.isYouTube_url = False
         self.youtube_url = None
         self.mp3_filepath = None
         self.audio_quality = "default"
         self.compute_type = "default"
         self.yaml_metadata = None
-        self.transcript_text = None
         self.chapters = []
         self.transcription_time = 0
 
