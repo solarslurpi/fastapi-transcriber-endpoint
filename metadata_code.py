@@ -8,10 +8,11 @@ import yt_dlp
 import os
 from datetime import datetime
 
+from logger_code import LoggerBase
 from pydantic_models import global_state, AUDIO_QUALITY_MAP, COMPUTE_TYPE_MAP
 
 class MetadataService:
-    def extract_youtube_metadata(self, youtube_url: str) -> Dict[str, str]:
+    def extract_youtube_metadata(self, youtube_url: str, logger: LoggerBase) -> None:
         ydl_opts = {
             'outtmpl': '%(title)s',
             'quiet': True,
@@ -22,9 +23,12 @@ class MetadataService:
             info_dict = ydl.extract_info(youtube_url, download=False)
             tags = info_dict.get('tags', [])
             formatted_tags = ', '.join(tag.replace(' ', '_') for tag in tags)
+            filename =  ydl.prepare_filename(info_dict)
+            sanitized_filename = self.sanitize_filename(filename)
+            logger.debug(f"Santized filename: {sanitized_filename}")
             metadata = {
                 "youTube URL": info_dict.get('webpage_url', ''),
-                "filename": ydl.prepare_filename(info_dict),
+                "filename": sanitized_filename,
                 "tags": formatted_tags,
                 "description": info_dict.get('description', ''),
                 "duration": self.format_time(info_dict.get('duration', 0)),
@@ -38,7 +42,8 @@ class MetadataService:
             # Chapters are extracted and returned separately because they are used for knowing the
             # transcript part stop and starts, but is not part of the frontmatter.
             chapters = info_dict.get('chapters', [])
-            return metadata, chapters
+            global_state.update(yaml_metadata=metadata, chapters=chapters, basefilename=metadata['filename'])
+
 
     def extract_mp3_metadata(self, mp3_filepath: str) -> Dict[str, str]:
         audio = MP3(mp3_filepath)
@@ -56,3 +61,17 @@ class MetadataService:
         mins, secs = divmod(seconds, 60)
         hours, mins = divmod(mins, 60)
         return f"{hours:d}:{mins:02d}:{secs:02d}"
+
+    def sanitize_filename(self, filename: str) -> str:
+        # Remove the file extension
+        name_part = filename.rsplit('.', 1)[0]
+
+        # Replace full-width colons and standard colons with a hyphen or other safe character
+        name_part = name_part.replace('：', '_').replace(':', '_')
+        # Replace unwanted characters with nothing or specific symbols
+        # This regex replaces any non-alphanumeric, non-space, and non-dot characters with nothing
+        cleaned_name = re.sub(r"[^a-zA-Z0-9 \.-]", "", name_part)
+        # Replace spaces with hyphens
+        safe_filename = cleaned_name.replace(" ", "_")
+
+        return safe_filename
